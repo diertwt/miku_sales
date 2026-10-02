@@ -1,8 +1,9 @@
 # анкета продажи
 
 
+import re
 import shutil
-import uuid
+from datetime import date as _date
 from pathlib import Path
 
 from PySide6.QtCore import QDate
@@ -305,7 +306,41 @@ class SaleDialog(QDialog):
         self._receipt_path = ""
         self.receipt_label.setText("— не выбран —")
 
+    # ---------- Работа с чеком ----------
+
+    @staticmethod
+    def _sanitize_name(name: str) -> str:
+        """Убирает из имени символы, недопустимые в имени файла."""
+        name = (name or "").strip()
+        # запрещённые символы Windows + управляющие + / \ : * ? " < > |
+        name = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", name)
+        # точки и пробелы в конце Windows не любит
+        name = name.strip(" .")
+        if not name:
+            name = "без_имени"
+        return name
+
+    def _make_receipt_name(self, ext: str) -> str:
+        """Собирает имя файла: дд-мм-гггг_Имя.ext (с суффиксом при дублях)."""
+        d = qdate_to_date(self.date_edit.date())
+        date_str = d.strftime("%d-%m-%Y")
+        safe_name = self._sanitize_name(self.name_edit.text())
+        base = f"{date_str}_{safe_name}"
+
+        # ищем свободное имя
+        candidate = RECEIPTS_DIR / f"{base}{ext}"
+        if not candidate.exists():
+            return candidate.name
+
+        i = 2
+        while True:
+            candidate = RECEIPTS_DIR / f"{base}_{i}{ext}"
+            if not candidate.exists():
+                return candidate.name
+            i += 1
+
     def _save_receipt_copy(self, src: str) -> str:
+        """Копирует чек в data/receipts с осмысленным именем."""
         if not src:
             return ""
         src_path = Path(src)
@@ -314,11 +349,64 @@ class SaleDialog(QDialog):
                 return str(src_path)
         except OSError:
             pass
+
         ext = src_path.suffix
-        dst = RECEIPTS_DIR / f"{uuid.uuid4().hex}{ext}"
+        new_name = self._make_receipt_name(ext)
+        dst = RECEIPTS_DIR / new_name
         shutil.copy2(src_path, dst)
         return str(dst)
 
+    def _rename_receipt_if_needed(self, old_path: str) -> str:
+        """
+        При редактировании продажи переименовывает существующий чек,
+        если изменились дата или имя. Возвращает новый путь.
+        """
+        if not old_path:
+            return ""
+
+        old = Path(old_path)
+        if not old.exists():
+            return old_path
+
+        # если файла нет в нашей папке — не трогаем
+        try:
+            if old.parent.resolve() != RECEIPTS_DIR.resolve():
+                return old_path
+        except OSError:
+            return old_path
+
+        # ожидаемое имя по текущим дате+имени
+        d = qdate_to_date(self.date_edit.date())
+        date_str = d.strftime("%d-%m-%Y")
+        safe_name = self._sanitize_name(self.name_edit.text())
+        base = f"{date_str}_{safe_name}"
+        ext = old.suffix
+
+        # уже совпадает? ничего не делаем
+        if old.stem == base:
+            return str(old)
+
+        # иначе ищем свободное имя (учитывая, что old сам занимает одно место —
+        # но с другим именем, так что не мешает)
+        candidate = RECEIPTS_DIR / f"{base}{ext}"
+        if not candidate.exists():
+            new_name = candidate.name
+        else:
+            i = 2
+            while True:
+                candidate = RECEIPTS_DIR / f"{base}_{i}{ext}"
+                if not candidate.exists():
+                    new_name = candidate.name
+                    break
+                i += 1
+
+        new_path = RECEIPTS_DIR / new_name
+        try:
+            old.rename(new_path)
+        except OSError:
+            return str(old)   # если не получилось — оставляем как есть
+        return str(new_path)
+    
     def _restore_size(self, value: str, combo: QComboBox, custom_edit: QLineEdit):
         value = (value or "").strip()
         if not value:
@@ -389,7 +477,24 @@ class SaleDialog(QDialog):
             )
             return
 
-        new_receipt = self._save_receipt_copy(self._receipt_path)
+        if self.sale and self._receipt_path and Path(self._receipt_path).exists():
+            try:
+                in_receipts = (
+                    Path(self._receipt_path).parent.resolve()
+                    == RECEIPTS_DIR.resolve()
+                )
+            except OSError:
+                in_receipts = False
+
+            if in_receipts:
+                # старый чек, возможно надо переименовать
+                new_receipt = self._rename_receipt_if_needed(self._receipt_path)
+            else:
+                # пользователь выбрал новый файл — копируем как новую продажу
+                new_receipt = self._save_receipt_copy(self._receipt_path)
+        else:
+            # новая продажа или чек убрали/не выбирали
+            new_receipt = self._save_receipt_copy(self._receipt_path)
 
         # размеры
         size_value = (self.size_custom.text().strip()
