@@ -8,34 +8,30 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+from core.config import EXPENSE_FIXED
+
 
 class Base(DeclarativeBase):
     pass
 
 
-# Тип позиции в справочнике "Цены"
-PRODUCT_TYPE = "product"   # обычный товар
-FRAME_TYPE = "frame"       # рамка
+PRODUCT_TYPE = "product"
+FRAME_TYPE = "frame"
 
 
 class Product(Base):
-    """Справочник товаров и рамок (вкладка 'Цены')."""
     __tablename__ = "products"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(200), unique=True)
-    type: Mapped[str] = mapped_column(String(20), default=PRODUCT_TYPE)  # product / frame
-    price: Mapped[float] = mapped_column(Float, default=0.0)         # цена без скидки
-    cost: Mapped[float] = mapped_column(Float, default=0.0)          # себестоимость
-    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)  # когда поступит в продажу
+    type: Mapped[str] = mapped_column(String(20), default=PRODUCT_TYPE)
+    price: Mapped[float] = mapped_column(Float, default=0.0)
+    cost: Mapped[float] = mapped_column(Float, default=0.0)
+    start_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     note: Mapped[str] = mapped_column(Text, default="")
-
-    def __repr__(self) -> str:
-        return f"<Product {self.name} ({self.type})>"
 
 
 class Discount(Base):
-    """Справочник скидок (вкладка 'Скидки')."""
     __tablename__ = "discounts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -46,30 +42,39 @@ class Discount(Base):
     note: Mapped[str] = mapped_column(Text, default="")
 
 
+class Expense(Base):
+    """Справочник расходов (вкладка 'Расходы')."""
+    __tablename__ = "expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), unique=True)
+    kind: Mapped[str] = mapped_column(String(20), default=EXPENSE_FIXED)
+    value: Mapped[float] = mapped_column(Float, default=0.0)
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    note: Mapped[str] = mapped_column(Text, default="")
+
+
 class Sale(Base):
-    """Продажа."""
     __tablename__ = "sales"
 
     id: Mapped[int] = mapped_column(primary_key=True)
 
-    sale_date: Mapped[date] = mapped_column(Date)                     # можно менять вручную
+    sale_date: Mapped[date] = mapped_column(Date)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.now)
 
-    buyer_link: Mapped[str] = mapped_column(String(300), default="")  # ссылка на профиль
+    buyer_link: Mapped[str] = mapped_column(String(300), default="")
     buyer_name: Mapped[str] = mapped_column(String(200), default="")
 
-    discount_id: Mapped[int | None] = mapped_column(
-        ForeignKey("discounts.id"), nullable=True
-    )
-    product_id: Mapped[int | None] = mapped_column(
-        ForeignKey("products.id"), nullable=True
-    )
-    frame_id: Mapped[int | None] = mapped_column(
-        ForeignKey("products.id"), nullable=True
-    )
+    discount_id: Mapped[int | None] = mapped_column(ForeignKey("discounts.id"), nullable=True)
+    product_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"), nullable=True)
+    frame_id: Mapped[int | None] = mapped_column(ForeignKey("products.id"), nullable=True)
 
-    amount_received: Mapped[float] = mapped_column(Float, default=0.0)  # сколько получил от покупателя
-    profit: Mapped[float] = mapped_column(Float, default=0.0)           # считается автоматически
+    size: Mapped[str] = mapped_column(String(50), default="")
+    frame_size: Mapped[str] = mapped_column(String(50), default="")
+
+    amount_received: Mapped[float] = mapped_column(Float, default=0.0)
+    profit: Mapped[float] = mapped_column(Float, default=0.0)
+    profit_manual: Mapped[bool] = mapped_column(Boolean, default=False)
 
     dialog_link: Mapped[str] = mapped_column(String(300), default="")
     receipt_path: Mapped[str] = mapped_column(String(500), default="")
@@ -79,10 +84,28 @@ class Sale(Base):
     discount = relationship("Discount")
     product = relationship("Product", foreign_keys=[product_id])
     frame = relationship("Product", foreign_keys=[frame_id])
+    expense_links = relationship(
+        "SaleExpense", back_populates="sale", cascade="all, delete-orphan"
+    )
+
+
+class SaleExpense(Base):
+    """Снимок применённого расхода к конкретной продаже (вариант А)."""
+    __tablename__ = "sale_expenses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sale_id: Mapped[int] = mapped_column(ForeignKey("sales.id", ondelete="CASCADE"))
+    expense_id: Mapped[int | None] = mapped_column(ForeignKey("expenses.id"), nullable=True)
+
+    name: Mapped[str] = mapped_column(String(200), default="")
+    kind: Mapped[str] = mapped_column(String(20), default=EXPENSE_FIXED)
+    value: Mapped[float] = mapped_column(Float, default=0.0)
+    amount: Mapped[float] = mapped_column(Float, default=0.0)
+
+    sale = relationship("Sale", back_populates="expense_links")
 
 
 class Idea(Base):
-    """Идеи (вкладка 'Идеи')."""
     __tablename__ = "ideas"
 
     id: Mapped[int] = mapped_column(primary_key=True)

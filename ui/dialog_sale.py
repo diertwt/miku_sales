@@ -13,10 +13,10 @@ from PySide6.QtWidgets import (
 )
 
 from core import repository as repo
+from core.config import STANDARD_SIZES, CUSTOM_SIZE_LABEL
 from core.models import Sale, PRODUCT_TYPE, FRAME_TYPE
 from ui.helpers import qdate_to_date, date_to_qdate, fmt_money
 from utils.paths import RECEIPTS_DIR
-
 
 class SaleDialog(QDialog):
     def __init__(self, parent=None, sale: Sale | None = None):
@@ -69,7 +69,7 @@ class SaleDialog(QDialog):
             self.discount_combo.addItem(f"{d.name} ({d.percent:g}%)", d.id)
         form.addRow("Скидка:", self.discount_combo)
 
-        # Товар
+                # Товар
         self.product_combo = QComboBox()
         self.product_combo.addItem("— не выбрано —", None)
         for p in self._products.values():
@@ -78,6 +78,20 @@ class SaleDialog(QDialog):
             )
         self.product_combo.currentIndexChanged.connect(self._recalc_profit)
         form.addRow("Товар:", self.product_combo)
+
+        # Размер товара
+        size_row = QHBoxLayout()
+        self.size_combo = QComboBox()
+        for s in STANDARD_SIZES:
+            self.size_combo.addItem(s, s)
+        self.size_combo.addItem(CUSTOM_SIZE_LABEL, None)
+        self.size_combo.currentIndexChanged.connect(self._on_size_changed)
+        self.size_custom = QLineEdit()
+        self.size_custom.setPlaceholderText("своё значение…")
+        self.size_custom.setVisible(False)
+        size_row.addWidget(self.size_combo, 1)
+        size_row.addWidget(self.size_custom, 1)
+        form.addRow("Размер:", size_row)
 
         # Рамка
         self.frame_combo = QComboBox()
@@ -88,6 +102,20 @@ class SaleDialog(QDialog):
             )
         self.frame_combo.currentIndexChanged.connect(self._recalc_profit)
         form.addRow("Рамка:", self.frame_combo)
+
+        # Размер рамки
+        frame_size_row = QHBoxLayout()
+        self.frame_size_combo = QComboBox()
+        for s in STANDARD_SIZES:
+            self.frame_size_combo.addItem(s, s)
+        self.frame_size_combo.addItem(CUSTOM_SIZE_LABEL, None)
+        self.frame_size_combo.currentIndexChanged.connect(self._on_frame_size_changed)
+        self.frame_size_custom = QLineEdit()
+        self.frame_size_custom.setPlaceholderText("своё значение…")
+        self.frame_size_custom.setVisible(False)
+        frame_size_row.addWidget(self.frame_size_combo, 1)
+        frame_size_row.addWidget(self.frame_size_custom, 1)
+        form.addRow("Размер рамки:", frame_size_row)
 
         # Сумма к получению
         self.amount_spin = QDoubleSpinBox()
@@ -158,6 +186,14 @@ class SaleDialog(QDialog):
         )
         self.profit_label.setText(fmt_money(profit))
 
+    def _on_size_changed(self):
+        is_custom = self.size_combo.currentData() is None
+        self.size_custom.setVisible(is_custom)
+
+    def _on_frame_size_changed(self):
+        is_custom = self.frame_size_combo.currentData() is None
+        self.frame_size_custom.setVisible(is_custom)
+
     def _autofill_review(self):
         """Подтянуть статус отзыва по последней продаже этого покупателя."""
         if self.sale:
@@ -217,16 +253,31 @@ class SaleDialog(QDialog):
             if i >= 0:
                 self.frame_combo.setCurrentIndex(i)
 
-        self.amount_spin.setValue(sale.amount_received or 0.0)
-        self.dialog_edit.setText(sale.dialog_link or "")
-        self._receipt_path = sale.receipt_path or ""
-        self.receipt_label.setText(
-            Path(self._receipt_path).name if self._receipt_path else "— не выбран —"
-        )
-        self.note_edit.setPlainText(sale.note or "")
-        self.review_check.setChecked(bool(sale.has_review))
-        self._recalc_profit()
+        # размер товара
+        self._restore_size(sale.size, self.size_combo, self.size_custom)
+        # размер рамки
+        self._restore_size(sale.frame_size, self.frame_size_combo, self.frame_size_custom)
 
+        self.amount_spin.setValue(sale.amount_received or 0.0)
+
+    @staticmethod
+    def _restore_size(value: str, combo: QComboBox, custom_edit: QLineEdit):
+        value = (value or "").strip()
+        if not value:
+            combo.setCurrentIndex(0)
+            custom_edit.setText("")
+            custom_edit.setVisible(False)
+            return
+        idx = combo.findData(value)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+            custom_edit.setText("")
+            custom_edit.setVisible(False)
+        else:
+            combo.setCurrentIndex(combo.findData(None))
+            custom_edit.setText(value)
+            custom_edit.setVisible(True)
+    
     def _on_ok(self):
         if not self.link_edit.text().strip() and not self.name_edit.text().strip():
             QMessageBox.warning(
@@ -237,6 +288,17 @@ class SaleDialog(QDialog):
 
         new_receipt = self._save_receipt_copy(self._receipt_path)
 
+        # итоговые размеры
+        if self.size_combo.currentData() is None:
+            size_value = self.size_custom.text().strip()
+        else:
+            size_value = self.size_combo.currentData()
+
+        if self.frame_size_combo.currentData() is None:
+            frame_size_value = self.frame_size_custom.text().strip()
+        else:
+            frame_size_value = self.frame_size_combo.currentData()
+
         data = dict(
             sale_date=qdate_to_date(self.date_edit.date()),
             buyer_link=self.link_edit.text().strip(),
@@ -245,6 +307,8 @@ class SaleDialog(QDialog):
             product_id=self.product_combo.currentData(),
             frame_id=self.frame_combo.currentData(),
             discount_id=self.discount_combo.currentData(),
+            size=size_value,
+            frame_size=frame_size_value,
             dialog_link=self.dialog_edit.text().strip(),
             receipt_path=new_receipt,
             note=self.note_edit.toPlainText().strip(),

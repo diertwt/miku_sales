@@ -126,10 +126,17 @@ class SalesTab(QWidget):
        # ---------------- Действия ----------------
 
     def on_new_sale(self):
-        from ui.dialog_sale import SaleDialog
-        dlg = SaleDialog(self)
-        if dlg.exec():
+        import traceback
+        try:
+            from ui.dialog_sale import SaleDialog
+            dlg = SaleDialog(self)
+            dlg.exec()
             self.refresh()
+        except Exception:
+            traceback.print_exc()
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(self, "Ошибка при открытии анкеты",
+                                 traceback.format_exc())
 
     def on_user_check(self):
         from ui.dialog_user_check import UserCheckDialog
