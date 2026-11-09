@@ -19,6 +19,7 @@ class SalesTab(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
 
+        self._excel_error_shown = False
         self.stack = QStackedWidget(self)
         self.home_page = self._build_home_page()
         self.table_page = self._build_table_page()
@@ -179,6 +180,24 @@ class SalesTab(QWidget):
 
         # График
         self.chart.refresh()
+
+        # Автоматическая синхронизация настроенной книги Excel.
+        try:
+            from core.excel_export import sync_if_configured
+            sync_if_configured()
+            self._excel_error_shown = False
+        except Exception as exc:
+            # Не показываем одинаковое предупреждение при каждом обновлении.
+            if not self._excel_error_shown:
+                QMessageBox.warning(
+                    self,
+                    "Не удалось обновить Excel",
+                    "Продажи сохранены в базе данных, но Excel пока не обновлён.\n\n"
+                    f"Причина: {exc}\n\n"
+                    "Если книга открыта в Excel, закрой её и повтори "
+                    "обновление списка продаж.",
+                )
+                self._excel_error_shown = True
         
     @staticmethod
     def _set(table: QTableWidget, row: int, col: int, text: str):

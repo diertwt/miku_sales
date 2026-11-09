@@ -37,7 +37,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='УчётПродаж',
+    name='УчётПродаж v1.2.2s',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

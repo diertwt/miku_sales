@@ -1,4 +1,4 @@
 PySide6
 SQLAlchemy
 matplotlib
-PyInstaller
+PyInstalleropenpyxl
